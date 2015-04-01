@@ -1,7 +1,7 @@
 package main
 
 import (
-	"crypto/rand"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
@@ -12,40 +12,58 @@ import (
 	"golang.org/x/crypto/nacl/box"
 )
 
+var numReaders int = 0
+var numWriters int = 0
+
+func getNonce(i int) *[24]byte {
+	var buf []byte = make([]byte, 24)
+	binary.PutVarint(buf, int64(i))
+	if len(buf) > 24 {
+		panic("nonce is too big!")
+	}
+	var arr [24]byte
+	copy(arr[:], buf)
+	return &arr
+}
+
 type SecureReader struct {
 	r         io.Reader
 	priv, pub *[32]byte
+	nonce     *[24]byte
 }
 
-func (r SecureReader) Read(p []byte) (n int, err error) {
-	var nonce [24]byte
-	rand.Reader.Read(nonce[:])
+func (r SecureReader) Read(p []byte) (int, error) {
+	message := make([]byte, 1024)
+	n, err := r.r.Read(message)
+	if err != nil {
+		return n, err
+	}
+	message = message[:n]
 
-	var message []byte
-	r.r.Read(message)
+	decrypted, ok := box.Open(nil, message, r.nonce, r.pub, r.priv)
+	if !ok {
+		panic("invalid")
+	}
+	copy(p, decrypted)
 
-	var decrypted []byte
-	decrypted, _ = box.Open(decrypted, message, &nonce, r.pub, r.priv)
-
-	return len(message), nil
+	return len(decrypted), nil
 }
 
 // NewSecureReader instantiates a new SecureReader
 func NewSecureReader(r io.Reader, priv, pub *[32]byte) io.Reader {
-	return SecureReader{r, priv, pub}
+	nonce := getNonce(numReaders)
+	numReaders++
+	return SecureReader{r, priv, pub, nonce}
 }
 
 type SecureWriter struct {
 	w         io.Writer
 	priv, pub *[32]byte
+	nonce     *[24]byte
 }
 
-func (w SecureWriter) Write(p []byte) (n int, err error) {
-	var nonce [24]byte
-	rand.Reader.Read(nonce[:])
-
-	var encrypted []byte
-	encrypted = box.Seal(encrypted, p, &nonce, w.pub, w.priv)
+func (w SecureWriter) Write(p []byte) (int, error) {
+	encrypted := box.Seal(nil, p, w.nonce, w.pub, w.priv)
 	w.w.Write(encrypted)
 
 	return len(encrypted), nil
@@ -53,7 +71,9 @@ func (w SecureWriter) Write(p []byte) (n int, err error) {
 
 // NewSecureWriter instantiates a new SecureWriter
 func NewSecureWriter(w io.Writer, priv, pub *[32]byte) io.Writer {
-	return SecureWriter{w, priv, pub}
+	nonce := getNonce(numWriters)
+	numWriters++
+	return SecureWriter{w, priv, pub, nonce}
 }
 
 // Dial generates a private/public key pair,
