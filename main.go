@@ -1,22 +1,59 @@
 package main
 
 import (
+	"crypto/rand"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
+
+	"golang.org/x/crypto/nacl/box"
 )
+
+type SecureReader struct {
+	r         io.Reader
+	priv, pub *[32]byte
+}
+
+func (r SecureReader) Read(p []byte) (n int, err error) {
+	var nonce [24]byte
+	rand.Reader.Read(nonce[:])
+
+	var message []byte
+	r.r.Read(message)
+
+	var decrypted []byte
+	decrypted, _ = box.Open(decrypted, message, &nonce, r.pub, r.priv)
+
+	return len(message), nil
+}
 
 // NewSecureReader instantiates a new SecureReader
 func NewSecureReader(r io.Reader, priv, pub *[32]byte) io.Reader {
-	return nil
+	return SecureReader{r, priv, pub}
+}
+
+type SecureWriter struct {
+	w         io.Writer
+	priv, pub *[32]byte
+}
+
+func (w SecureWriter) Write(p []byte) (n int, err error) {
+	var nonce [24]byte
+	rand.Reader.Read(nonce[:])
+
+	var encrypted []byte
+	encrypted = box.Seal(encrypted, p, &nonce, w.pub, w.priv)
+	w.w.Write(encrypted)
+
+	return len(encrypted), nil
 }
 
 // NewSecureWriter instantiates a new SecureWriter
 func NewSecureWriter(w io.Writer, priv, pub *[32]byte) io.Writer {
-	return nil
+	return SecureWriter{w, priv, pub}
 }
 
 // Dial generates a private/public key pair,
