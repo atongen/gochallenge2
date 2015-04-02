@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
@@ -14,27 +13,20 @@ import (
 	"golang.org/x/crypto/nacl/box"
 )
 
-var numReaders int = 0
-var numWriters int = 0
-
-func getNonce(i int) *[24]byte {
-	var buf []byte = make([]byte, 24)
-	binary.PutVarint(buf, int64(i))
-	if len(buf) > 24 {
-		log.Fatalln("nonce is too big!")
-	}
-	var arr [24]byte
-	copy(arr[:], buf)
-	return &arr
-}
+// Embed the nonce!
+// https://github.com/ereyes01/cryptohelper/blob/master/cryptohelper.go#L31
+// also helpful:
+// http://pynacl.readthedocs.org/en/latest/public/
 
 type SecureReader struct {
 	r         io.Reader
 	priv, pub *[32]byte
-	nonce     *[24]byte
 }
 
 func (r SecureReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
 	message := make([]byte, 1024)
 	n, err := r.r.Read(message)
 	if err != nil {
@@ -42,7 +34,10 @@ func (r SecureReader) Read(p []byte) (int, error) {
 	}
 	message = message[:n]
 
-	decrypted, ok := box.Open(nil, message, r.nonce, r.pub, r.priv)
+	var nonce [24]byte
+	copy(nonce[:], message[:24])
+
+	decrypted, ok := box.Open(nil, message[24:], &nonce, r.pub, r.priv)
 	if !ok {
 		log.Fatalln("unable to open box")
 	}
@@ -53,19 +48,21 @@ func (r SecureReader) Read(p []byte) (int, error) {
 
 // NewSecureReader instantiates a new SecureReader
 func NewSecureReader(r io.Reader, priv, pub *[32]byte) io.Reader {
-	nonce := getNonce(numReaders)
-	numReaders++
-	return SecureReader{r, priv, pub, nonce}
+	return SecureReader{r, priv, pub}
 }
 
 type SecureWriter struct {
 	w         io.Writer
 	priv, pub *[32]byte
-	nonce     *[24]byte
 }
 
 func (w SecureWriter) Write(p []byte) (int, error) {
-	encrypted := box.Seal(nil, p, w.nonce, w.pub, w.priv)
+	var nonce [24]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return 0, err
+	}
+
+	encrypted := box.Seal(nil, p, &nonce, w.pub, w.priv)
 	w.w.Write(encrypted)
 
 	return len(encrypted), nil
@@ -73,9 +70,7 @@ func (w SecureWriter) Write(p []byte) (int, error) {
 
 // NewSecureWriter instantiates a new SecureWriter
 func NewSecureWriter(w io.Writer, priv, pub *[32]byte) io.Writer {
-	nonce := getNonce(numWriters)
-	numWriters++
-	return SecureWriter{w, priv, pub, nonce}
+	return SecureWriter{w, priv, pub}
 }
 
 type SecureReadWriteCloser struct {
