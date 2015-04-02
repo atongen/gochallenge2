@@ -84,6 +84,7 @@ func Dial(addr string) (io.ReadWriteCloser, error) {
 }
 
 // Serve starts a secure echo server on the given listener.
+// http://golang.org/src/net/http/server.go?s=51504:51550#L1714
 func Serve(l net.Listener) error {
 	return nil
 }
