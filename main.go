@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"crypto/rand"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -19,7 +21,7 @@ func getNonce(i int) *[24]byte {
 	var buf []byte = make([]byte, 24)
 	binary.PutVarint(buf, int64(i))
 	if len(buf) > 24 {
-		panic("nonce is too big!")
+		log.Fatalln("nonce is too big!")
 	}
 	var arr [24]byte
 	copy(arr[:], buf)
@@ -42,7 +44,7 @@ func (r SecureReader) Read(p []byte) (int, error) {
 
 	decrypted, ok := box.Open(nil, message, r.nonce, r.pub, r.priv)
 	if !ok {
-		panic("invalid")
+		log.Fatalln("unable to open box")
 	}
 	copy(p, decrypted)
 
@@ -76,17 +78,70 @@ func NewSecureWriter(w io.Writer, priv, pub *[32]byte) io.Writer {
 	return SecureWriter{w, priv, pub, nonce}
 }
 
+type SecureReadWriteCloser struct {
+	conn      net.Conn
+	priv, pub *[32]byte
+}
+
+func (srwc SecureReadWriteCloser) Read(p []byte) (int, error) {
+	sr := NewSecureReader(srwc.conn, srwc.priv, srwc.pub)
+	return sr.Read(p)
+}
+
+func (srwc SecureReadWriteCloser) Write(p []byte) (int, error) {
+	sw := NewSecureWriter(srwc.conn, srwc.priv, srwc.pub)
+	return sw.Write(p)
+}
+
+func (srwc SecureReadWriteCloser) Close() error {
+	return srwc.conn.Close()
+}
+
 // Dial generates a private/public key pair,
 // connects to the server, perform the handshake
 // and return a reader/writer.
 func Dial(addr string) (io.ReadWriteCloser, error) {
-	return nil, nil
+	pub, priv, err := box.GenerateKey(rand.Reader)
+	if err != nil {
+		log.Fatalln("error generating keys", err)
+	}
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		log.Fatalln("error dialing server", err)
+	}
+
+	srwc := SecureReadWriteCloser{conn, priv, pub}
+
+	return srwc, nil
 }
 
 // Serve starts a secure echo server on the given listener.
 // http://golang.org/src/net/http/server.go?s=51504:51550#L1714
+// http://loige.co/simple-echo-server-written-in-go-dockerized/
 func Serve(l net.Listener) error {
-	return nil
+	defer l.Close()
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			log.Fatalln("error accepting connection", err)
+		}
+		go handleRequest(conn)
+	}
+}
+
+func handleRequest(conn net.Conn) {
+	buf := make([]byte, 1024)
+	// Read the incoming connection into the buffer.
+	_, err := conn.Read(buf)
+	if err != nil {
+		log.Fatalln("error reading request", err)
+	}
+
+	n := bytes.Index(buf, []byte{0})
+
+	conn.Write(buf[:n])
+	conn.Close()
 }
 
 func main() {
