@@ -17,6 +17,7 @@ import (
 // https://github.com/ereyes01/cryptohelper/blob/master/cryptohelper.go#L31
 // also helpful:
 // http://pynacl.readthedocs.org/en/latest/public/
+// wrapper types: http://play.golang.org/p/ssz2AKIj_y
 
 type SecureReader struct {
 	r         io.Reader
