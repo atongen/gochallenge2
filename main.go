@@ -116,7 +116,6 @@ func Dial(addr string) (io.ReadWriteCloser, error) {
 // http://golang.org/src/net/http/server.go?s=51504:51550#L1714
 // http://loige.co/simple-echo-server-written-in-go-dockerized/
 func Serve(l net.Listener) error {
-	defer l.Close()
 	for {
 		conn, err := l.Accept()
 		if err != nil {
