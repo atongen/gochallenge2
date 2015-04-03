@@ -37,7 +37,7 @@ func (r SecureReader) Read(p []byte) (int, error) {
 	var nonce [24]byte
 	copy(nonce[:], message[:24])
 
-	decrypted, ok := box.Open(nil, message[24:], &nonce, r.pub, r.priv)
+	decrypted, ok := box.Open([]byte{}, message[24:], &nonce, r.pub, r.priv)
 	if !ok {
 		log.Fatalln("unable to open box")
 	}
@@ -62,7 +62,7 @@ func (w SecureWriter) Write(p []byte) (int, error) {
 		return 0, err
 	}
 
-	encrypted := box.Seal(nil, p, &nonce, w.pub, w.priv)
+	encrypted := box.Seal(nonce[:], p, &nonce, w.pub, w.priv)
 	w.w.Write(encrypted)
 
 	return len(encrypted), nil
@@ -74,18 +74,17 @@ func NewSecureWriter(w io.Writer, priv, pub *[32]byte) io.Writer {
 }
 
 type SecureReadWriteCloser struct {
-	conn      net.Conn
-	priv, pub *[32]byte
+	sr   io.Reader
+	sw   io.Writer
+	conn net.Conn
 }
 
 func (srwc SecureReadWriteCloser) Read(p []byte) (int, error) {
-	sr := NewSecureReader(srwc.conn, srwc.priv, srwc.pub)
-	return sr.Read(p)
+	return srwc.sr.Read(p)
 }
 
 func (srwc SecureReadWriteCloser) Write(p []byte) (int, error) {
-	sw := NewSecureWriter(srwc.conn, srwc.priv, srwc.pub)
-	return sw.Write(p)
+	return srwc.sw.Write(p)
 }
 
 func (srwc SecureReadWriteCloser) Close() error {
@@ -105,8 +104,10 @@ func Dial(addr string) (io.ReadWriteCloser, error) {
 	if err != nil {
 		log.Fatalln("error dialing server", err)
 	}
+	sr := NewSecureReader(conn, priv, pub)
+	sw := NewSecureWriter(conn, priv, pub)
 
-	srwc := SecureReadWriteCloser{conn, priv, pub}
+	srwc := SecureReadWriteCloser{sr, sw, conn}
 
 	return srwc, nil
 }
