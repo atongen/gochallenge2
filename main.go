@@ -41,7 +41,6 @@ func (r SecureReader) Read(p []byte) (int, error) {
 	if !ok {
 		log.Fatalln("unable to open box")
 	}
-	//println("read:", string(decrypted))
 	copy(p, decrypted)
 
 	return len(decrypted), nil
@@ -64,7 +63,6 @@ func (w SecureWriter) Write(p []byte) (int, error) {
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return 0, err
 	}
-	//println("write:", string(p))
 
 	encrypted := box.SealAfterPrecomputation(nonce[:], p, &nonce, w.sharedKey)
 	w.w.Write(encrypted)
@@ -131,6 +129,31 @@ func Dial(addr string) (io.ReadWriteCloser, error) {
 	return srwc, nil
 }
 
+// Serve starts a secure echo server on the given listener.
+// http://golang.org/src/net/http/server.go?s=51504:51550#L1714
+// http://loige.co/simple-echo-server-written-in-go-dockerized/
+func Serve(l net.Listener) error {
+	myPub, myPriv, err := box.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			continue
+		}
+		peerPub, err := serverHandshake(conn, myPub)
+		if err != nil {
+			continue
+		}
+		c := newConn(conn, myPriv, peerPub)
+		go c.serve()
+	}
+
+	return err
+}
+
 func clientHandshake(conn net.Conn, pub *[32]byte) (*[32]byte, error) {
 	// write my pub key to connection
 	_, err := fmt.Fprintf(conn, string(pub[:32]))
@@ -183,31 +206,6 @@ type conn struct {
 	remoteAddr string   // network address of remote side
 	rwc        net.Conn // i/o connection
 	srwc       io.ReadWriteCloser
-}
-
-// Serve starts a secure echo server on the given listener.
-// http://golang.org/src/net/http/server.go?s=51504:51550#L1714
-// http://loige.co/simple-echo-server-written-in-go-dockerized/
-func Serve(l net.Listener) error {
-	myPub, myPriv, err := box.GenerateKey(rand.Reader)
-	if err != nil {
-		return err
-	}
-
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			continue
-		}
-		peerPub, err := serverHandshake(conn, myPub)
-		if err != nil {
-			continue
-		}
-		c := newConn(conn, myPriv, peerPub)
-		go c.serve()
-	}
-
-	return err
 }
 
 // Serve a new connection.
