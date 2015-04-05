@@ -1,126 +1,50 @@
+/*
+Go Challenge 2
+http://golang-challenge.com/go-challenge2/
+
+Author: Andrew Tongen <atongen@gmail.com>
+2015-04-05
+
+In order to prevent our competitor from spying on our network,
+we are going to write a small system that leverages NaCl to
+establish secure communication. NaCl is a crypto system that
+uses a public key for encryption and a private key for decryption.
+
+Some helpful links:
+
+https://github.com/ereyes01/cryptohelper/blob/master/cryptohelper.go#L31
+http://pynacl.readthedocs.org/en/latest/public/
+http://play.golang.org/p/ssz2AKIj_y
+http://golang.org/src/net/http/server.go?s=51504:51550#L1714
+http://loige.co/simple-echo-server-written-in-go-dockerized/
+*/
 package main
 
 import (
-	"crypto/rand"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
-
-	"golang.org/x/crypto/nacl/box"
 )
-
-// Embed the nonce!
-// https://github.com/ereyes01/cryptohelper/blob/master/cryptohelper.go#L31
-// also helpful:
-// http://pynacl.readthedocs.org/en/latest/public/
-// wrapper types: http://play.golang.org/p/ssz2AKIj_y
-
-type SecureReader struct {
-	r         io.Reader
-	sharedKey *[32]byte
-}
-
-func (r SecureReader) Read(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	message := make([]byte, 1024)
-	n, err := r.r.Read(message)
-	if err != nil {
-		return n, err
-	}
-	message = message[:n]
-
-	var nonce [24]byte
-	copy(nonce[:], message[:24])
-
-	decrypted, ok := box.OpenAfterPrecomputation([]byte{}, message[24:], &nonce, r.sharedKey)
-	if !ok {
-		log.Fatalln("unable to open box")
-	}
-	copy(p, decrypted)
-
-	return len(decrypted), nil
-}
-
-// NewSecureReader instantiates a new SecureReader
-func NewSecureReader(r io.Reader, priv, pub *[32]byte) io.Reader {
-	var sharedKey [32]byte
-	box.Precompute(&sharedKey, pub, priv)
-	return SecureReader{r, &sharedKey}
-}
-
-type SecureWriter struct {
-	w         io.Writer
-	sharedKey *[32]byte
-}
-
-func (w SecureWriter) Write(p []byte) (int, error) {
-	var nonce [24]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return 0, err
-	}
-
-	encrypted := box.SealAfterPrecomputation(nonce[:], p, &nonce, w.sharedKey)
-	w.w.Write(encrypted)
-
-	return len(encrypted), nil
-}
-
-// NewSecureWriter instantiates a new SecureWriter
-func NewSecureWriter(w io.Writer, priv, pub *[32]byte) io.Writer {
-	var sharedKey [32]byte
-	box.Precompute(&sharedKey, pub, priv)
-	return SecureWriter{w, &sharedKey}
-}
-
-type SecureReadWriteCloser struct {
-	sr   io.Reader
-	sw   io.Writer
-	conn net.Conn
-}
-
-func NewSecureReadWriteCloser(conn net.Conn, priv, pub *[32]byte) io.ReadWriteCloser {
-	sr := NewSecureReader(conn, priv, pub)
-	sw := NewSecureWriter(conn, priv, pub)
-
-	return &SecureReadWriteCloser{sr, sw, conn}
-}
-
-func (srwc SecureReadWriteCloser) Read(p []byte) (int, error) {
-	return srwc.sr.Read(p)
-}
-
-func (srwc SecureReadWriteCloser) Write(p []byte) (int, error) {
-	return srwc.sw.Write(p)
-}
-
-func (srwc SecureReadWriteCloser) Close() error {
-	return srwc.conn.Close()
-}
 
 // Dial generates a private/public key pair,
 // connects to the server, perform the handshake
 // and return a reader/writer.
 func Dial(addr string) (io.ReadWriteCloser, error) {
-	myPub, myPriv, err := box.GenerateKey(rand.Reader)
+	myPub, myPriv, err := GenerateKey()
 	if err != nil {
-		log.Println("error generating client keys", err)
 		return nil, err
 	}
 
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		log.Println("error dialing server", err)
 		return nil, err
 	}
 
 	peerPub, err := clientHandshake(conn, myPub)
 	if err != nil {
-		log.Println("client handshake failed", err)
 		return nil, err
 	}
 
@@ -130,10 +54,8 @@ func Dial(addr string) (io.ReadWriteCloser, error) {
 }
 
 // Serve starts a secure echo server on the given listener.
-// http://golang.org/src/net/http/server.go?s=51504:51550#L1714
-// http://loige.co/simple-echo-server-written-in-go-dockerized/
 func Serve(l net.Listener) error {
-	myPub, myPriv, err := box.GenerateKey(rand.Reader)
+	myPub, myPriv, err := GenerateKey()
 	if err != nil {
 		return err
 	}
@@ -201,7 +123,7 @@ func newConn(rwc net.Conn, priv, pub *[32]byte) *conn {
 	return c
 }
 
-// A conn represents the server side of an HTTP connection.
+// A conn represents the server side of an secure connection.
 type conn struct {
 	remoteAddr string   // network address of remote side
 	rwc        net.Conn // i/o connection
@@ -216,13 +138,10 @@ func (c *conn) serve() {
 		n, err := c.srwc.Read(buf)
 		if err != nil {
 			if err == io.EOF {
-				//println("conn read EOF")
 				break // Don't reply
 			} else if neterr, ok := err.(net.Error); ok && neterr.Timeout() {
-				//println("conn read timeout")
 				break // Don't reply
 			} else {
-				//println("conn read failed: ", err)
 				break
 			}
 		}
