@@ -24,6 +24,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -84,7 +85,7 @@ func clientHandshake(conn net.Conn, pub *[32]byte) (*[32]byte, error) {
 	}
 
 	// read server pub key from connection
-	buf := make([]byte, 1024)
+	buf := make([]byte, 32)
 	_, err = conn.Read(buf)
 	if err != nil {
 		return nil, err
@@ -97,7 +98,7 @@ func clientHandshake(conn net.Conn, pub *[32]byte) (*[32]byte, error) {
 
 func serverHandshake(conn net.Conn, pub *[32]byte) (*[32]byte, error) {
 	// read client pub key from connection
-	buf := make([]byte, 1024)
+	buf := make([]byte, 32)
 	_, err := conn.Read(buf)
 	if err != nil {
 		return nil, err
@@ -125,33 +126,35 @@ func newConn(rwc net.Conn, priv, pub *[32]byte) *conn {
 
 // A conn represents the server side of an secure connection.
 type conn struct {
-	remoteAddr string   // network address of remote side
-	rwc        net.Conn // i/o connection
+	remoteAddr string
+	rwc        net.Conn
 	srwc       io.ReadWriteCloser
 }
 
 // Serve a new connection.
 func (c *conn) serve() {
+	i := 0
+	println(c.remoteAddr)
 	for {
-		// read from the client connection
-		buf := make([]byte, 2048)
-		n, err := c.srwc.Read(buf)
+		println(i, "a")
+		// read from the client
+		buf, err := ioutil.ReadAll(c.rwc)
+		println(buf)
 		if err != nil {
-			if err == io.EOF {
-				break // Don't reply
-			} else if neterr, ok := err.(net.Error); ok && neterr.Timeout() {
-				break // Don't reply
-			} else {
-				break
-			}
-		}
-
-		// write to the client connection
-		_, err = fmt.Fprintf(c.srwc, string(buf[:n]))
-		if err != nil {
-			println("conn write failed", err)
+			fmt.Println("read error:", err)
 			break
 		}
+
+		println(i, "d")
+
+		// write to the client connection
+		_, err = fmt.Fprintf(c.srwc, string(buf))
+		if err != nil {
+			fmt.Println("write error:", err)
+			break
+		}
+		println(i, "e")
+		i += 1
 	}
 }
 

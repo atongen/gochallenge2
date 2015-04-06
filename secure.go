@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"io"
+	"io/ioutil"
 	"net"
 
 	"golang.org/x/crypto/nacl/box"
@@ -19,23 +22,28 @@ func (r SecureReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	message := make([]byte, 1024)
-	n, err := r.r.Read(message)
+	message, err := ioutil.ReadAll(r.r)
 	if err != nil {
-		return n, err
+		return 0, err
 	}
-	message = message[:n]
 
 	var nonce [24]byte
 	copy(nonce[:], message[:24])
+	var size uint64
+	buf := bytes.NewReader(nonce[0:8])
+	err = binary.Read(buf, binary.LittleEndian, &size)
+	if err != nil {
+		return 0, err
+	}
+	println("read size:", size)
 
-	decrypted, ok := box.OpenAfterPrecomputation([]byte{}, message[24:], &nonce, r.sharedKey)
+	decrypted, ok := box.OpenAfterPrecomputation(nil, message[24:], &nonce, r.sharedKey)
 	if !ok {
 		return 0, errors.New("unable to open the box")
 	}
 	copy(p, decrypted)
 
-	return len(decrypted), nil
+	return len(decrypted), err
 }
 
 // NewSecureReader instantiates a new SecureReader
@@ -51,15 +59,26 @@ type SecureWriter struct {
 }
 
 func (w SecureWriter) Write(p []byte) (int, error) {
-	var nonce [24]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.LittleEndian, uint64(len(p)))
+	if err != nil {
+		return 0, err
+	}
+	size := buf.Bytes()
+
+	random := make([]byte, 16)
+	if _, err := rand.Read(random); err != nil {
 		return 0, err
 	}
 
-	encrypted := box.SealAfterPrecomputation(nonce[:], p, &nonce, w.sharedKey)
-	w.w.Write(encrypted)
+	var nonce [24]byte
+	copy(nonce[0:8], size[:])
+	copy(nonce[9:24], random[:])
 
-	return len(encrypted), nil
+	encrypted := box.SealAfterPrecomputation(nonce[:], p, &nonce, w.sharedKey)
+
+	w.w.Write(encrypted)
+	return len(p), nil
 }
 
 // NewSecureWriter instantiates a new SecureWriter
