@@ -24,7 +24,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -133,19 +132,14 @@ type conn struct {
 
 // Serve a new connection.
 func (c *conn) serve() {
-	i := 0
-	println(c.remoteAddr)
 	for {
-		println(i, "a")
 		// read from the client
-		buf, err := ioutil.ReadAll(c.rwc)
-		println(buf)
+		buf := make([]byte, maxMessageSize)
+		n, err := c.rwc.Read(buf)
 		if err != nil {
-			fmt.Println("read error:", err)
 			break
 		}
-
-		println(i, "d")
+		buf = buf[:n]
 
 		// write to the client connection
 		_, err = fmt.Fprintf(c.srwc, string(buf))
@@ -153,8 +147,6 @@ func (c *conn) serve() {
 			fmt.Println("write error:", err)
 			break
 		}
-		println(i, "e")
-		i += 1
 	}
 }
 

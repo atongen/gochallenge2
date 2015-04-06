@@ -5,12 +5,15 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strconv"
 
 	"golang.org/x/crypto/nacl/box"
 )
+
+const maxMessageSize = 1024 * 32
 
 // A SecureReader wraps an io.Reader and a shared key
 type SecureReader struct {
@@ -50,16 +53,23 @@ func (r *SecureReader) Read(p []byte) (int, error) {
 		r.size = size
 	}
 
-	if r.pos == r.size {
-		err = io.EOF
+	if r.size > uint32(len(p)) {
+		//panic("buffer is too small")
+	} else if r.size > maxMessageSize {
+		//panic("message is too large")
 	}
+	fmt.Println(r)
+	println("p", len(p))
+	println("m", len(message))
+	println("n", n)
 
-	r.pos += uint32(n) - uint32(24) - uint32(box.Overhead)
+	r.pos += uint32(n - 24 - box.Overhead)
 
 	decrypted, ok := box.OpenAfterPrecomputation(nil, message[24:], &nonce, r.sharedKey)
 	if !ok {
-		return 0, errors.New("unable to open the box")
+		return 0, errors.New("unable to open box")
 	}
+	println(string(decrypted))
 	copy(p, decrypted)
 
 	return len(decrypted), err
@@ -78,6 +88,10 @@ type SecureWriter struct {
 }
 
 func (w *SecureWriter) Write(p []byte) (int, error) {
+	if len(p) > maxMessageSize {
+		panic("message is too large")
+	}
+
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.LittleEndian, uint32(len(p)))
 	if err != nil {
