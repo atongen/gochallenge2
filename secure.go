@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strconv"
 
 	"golang.org/x/crypto/nacl/box"
 )
@@ -15,8 +16,12 @@ import (
 type SecureReader struct {
 	r         io.Reader
 	sharedKey *[32]byte
-	started   bool
-	available uint64
+	size      uint32
+	pos       uint32
+}
+
+func (r *SecureReader) String() string {
+	return "size: " + strconv.Itoa(int(r.size)) + ", pos: " + strconv.Itoa(int(r.pos))
 }
 
 func (r *SecureReader) Read(p []byte) (int, error) {
@@ -24,7 +29,7 @@ func (r *SecureReader) Read(p []byte) (int, error) {
 		return 0, nil
 	}
 
-	message := make([]byte, len(p))
+	message := make([]byte, len(p)+24+box.Overhead)
 	n, err := r.r.Read(message)
 	if err != nil && err != io.EOF {
 		return 0, err
@@ -34,23 +39,22 @@ func (r *SecureReader) Read(p []byte) (int, error) {
 	var nonce [24]byte
 	copy(nonce[:], message[:24])
 
-	if !r.started {
-		var size uint64
-		buf := bytes.NewReader(nonce[0:8])
-		err = binary.Read(buf, binary.LittleEndian, &size)
-		if err != nil {
-			return 0, err
+	if r.pos == uint32(0) {
+		var size uint32
+		buf := bytes.NewReader(nonce[0:4])
+		bErr := binary.Read(buf, binary.LittleEndian, &size)
+		if bErr != nil {
+			return 0, bErr
 		}
 
-		r.available = size
-		r.started = true
+		r.size = size
 	}
 
-	if uint64(n) >= r.available {
-		r.available = uint64(0)
-	} else {
-		r.available -= uint64(n)
+	if r.pos == r.size {
+		err = io.EOF
 	}
+
+	r.pos += uint32(n) - uint32(24) - uint32(box.Overhead)
 
 	decrypted, ok := box.OpenAfterPrecomputation(nil, message[24:], &nonce, r.sharedKey)
 	if !ok {
@@ -65,7 +69,7 @@ func (r *SecureReader) Read(p []byte) (int, error) {
 func NewSecureReader(r io.Reader, priv, pub *[32]byte) io.Reader {
 	var sharedKey [32]byte
 	box.Precompute(&sharedKey, pub, priv)
-	return &SecureReader{r, &sharedKey, false, uint64(0)}
+	return &SecureReader{r, &sharedKey, uint32(0), uint32(0)}
 }
 
 type SecureWriter struct {
@@ -75,20 +79,20 @@ type SecureWriter struct {
 
 func (w *SecureWriter) Write(p []byte) (int, error) {
 	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.LittleEndian, uint64(len(p)))
+	err := binary.Write(buf, binary.LittleEndian, uint32(len(p)))
 	if err != nil {
 		return 0, err
 	}
 	size := buf.Bytes()
 
-	random := make([]byte, 16)
+	random := make([]byte, 20)
 	if _, err := rand.Read(random); err != nil {
 		return 0, err
 	}
 
 	var nonce [24]byte
-	copy(nonce[0:8], size[:])
-	copy(nonce[9:24], random[:])
+	copy(nonce[0:4], size[:])
+	copy(nonce[5:24], random[:])
 
 	encrypted := box.SealAfterPrecomputation(nonce[:], p, &nonce, w.sharedKey)
 
