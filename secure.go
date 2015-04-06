@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"io/ioutil"
 	"net"
 
 	"golang.org/x/crypto/nacl/box"
@@ -16,26 +15,42 @@ import (
 type SecureReader struct {
 	r         io.Reader
 	sharedKey *[32]byte
+	started   bool
+	available uint64
 }
 
-func (r SecureReader) Read(p []byte) (int, error) {
+func (r *SecureReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	message, err := ioutil.ReadAll(r.r)
-	if err != nil {
+
+	message := make([]byte, len(p))
+	n, err := r.r.Read(message)
+	if err != nil && err != io.EOF {
 		return 0, err
 	}
+	message = message[:n]
 
 	var nonce [24]byte
 	copy(nonce[:], message[:24])
-	var size uint64
-	buf := bytes.NewReader(nonce[0:8])
-	err = binary.Read(buf, binary.LittleEndian, &size)
-	if err != nil {
-		return 0, err
+
+	if !r.started {
+		var size uint64
+		buf := bytes.NewReader(nonce[0:8])
+		err = binary.Read(buf, binary.LittleEndian, &size)
+		if err != nil {
+			return 0, err
+		}
+
+		r.available = size
+		r.started = true
 	}
-	println("read size:", size)
+
+	if uint64(n) >= r.available {
+		r.available = uint64(0)
+	} else {
+		r.available -= uint64(n)
+	}
 
 	decrypted, ok := box.OpenAfterPrecomputation(nil, message[24:], &nonce, r.sharedKey)
 	if !ok {
@@ -50,7 +65,7 @@ func (r SecureReader) Read(p []byte) (int, error) {
 func NewSecureReader(r io.Reader, priv, pub *[32]byte) io.Reader {
 	var sharedKey [32]byte
 	box.Precompute(&sharedKey, pub, priv)
-	return &SecureReader{r, &sharedKey}
+	return &SecureReader{r, &sharedKey, false, uint64(0)}
 }
 
 type SecureWriter struct {
@@ -58,7 +73,7 @@ type SecureWriter struct {
 	sharedKey *[32]byte
 }
 
-func (w SecureWriter) Write(p []byte) (int, error) {
+func (w *SecureWriter) Write(p []byte) (int, error) {
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.LittleEndian, uint64(len(p)))
 	if err != nil {
