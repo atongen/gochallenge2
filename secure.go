@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"strconv"
@@ -23,6 +22,7 @@ type SecureReader struct {
 	pos       uint32
 }
 
+// TODO: remove me
 func (r *SecureReader) String() string {
 	return "size: " + strconv.Itoa(int(r.size)) + ", pos: " + strconv.Itoa(int(r.pos))
 }
@@ -37,6 +37,9 @@ func (r *SecureReader) Read(p []byte) (int, error) {
 	if err != nil && err != io.EOF {
 		return 0, err
 	}
+	if n == 0 {
+		return 0, nil
+	}
 	message = message[:n]
 
 	var nonce [24]byte
@@ -49,19 +52,14 @@ func (r *SecureReader) Read(p []byte) (int, error) {
 		if bErr != nil {
 			return 0, bErr
 		}
-
 		r.size = size
 	}
 
 	if r.size > uint32(len(p)) {
-		//panic("buffer is too small")
+		return 0, errors.New("buffer is too small")
 	} else if r.size > maxMessageSize {
-		//panic("message is too large")
+		return 0, errors.New("message is too large")
 	}
-	fmt.Println(r)
-	println("p", len(p))
-	println("m", len(message))
-	println("n", n)
 
 	r.pos += uint32(n - 24 - box.Overhead)
 
@@ -69,7 +67,6 @@ func (r *SecureReader) Read(p []byte) (int, error) {
 	if !ok {
 		return 0, errors.New("unable to open box")
 	}
-	println(string(decrypted))
 	copy(p, decrypted)
 
 	return len(decrypted), err
@@ -106,7 +103,7 @@ func (w *SecureWriter) Write(p []byte) (int, error) {
 
 	var nonce [24]byte
 	copy(nonce[0:4], size[:])
-	copy(nonce[5:24], random[:])
+	copy(nonce[4:24], random[:])
 
 	encrypted := box.SealAfterPrecomputation(nonce[:], p, &nonce, w.sharedKey)
 

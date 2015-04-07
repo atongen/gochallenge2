@@ -135,7 +135,7 @@ func (c *conn) serve() {
 	for {
 		// read from the client
 		buf := make([]byte, maxMessageSize)
-		n, err := c.rwc.Read(buf)
+		n, err := c.srwc.Read(buf)
 		if err != nil {
 			break
 		}
