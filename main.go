@@ -132,25 +132,26 @@ type conn struct {
 
 // Serve a new connection.
 func (c *conn) serve() {
-	for {
-		// read from the client
-		buf := make([]byte, maxMessageSize)
-		n, err := c.srwc.Read(buf)
-		if err != nil {
-			break
-		}
-		buf = buf[:n]
-
-		// write to the client connection
-		_, err = fmt.Fprintf(c.srwc, string(buf))
-		if err != nil {
-			fmt.Println("write error:", err)
-			break
-		}
-
-		// always break
-		break
+	//for {
+	// read from the client
+	buf := make([]byte, maxMessageSize)
+	n, err := c.srwc.Read(buf)
+	if err != nil {
+		fmt.Println("read error:", err)
+		//break
 	}
+	buf = buf[:n]
+
+	// write to the client connection
+	_, err = fmt.Fprintf(c.srwc, string(buf))
+	if err != nil {
+		fmt.Println("write error:", err)
+		//break
+	}
+
+	// always break
+	//break
+	//}
 }
 
 func main() {
