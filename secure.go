@@ -55,13 +55,15 @@ func (r *SecureReader) Read(p []byte) (int, error) {
 		r.size = size
 	}
 
-	if r.size > uint32(len(p)) {
+	messageSize := r.size - uint32(24+box.Overhead)
+
+	if messageSize > uint32(len(p)) {
 		return 0, errors.New("buffer is too small")
-	} else if r.size > maxMessageSize {
+	} else if messageSize > uint32(maxMessageSize) {
 		return 0, errors.New("message is too large")
 	}
 
-	r.pos += uint32(n - 24 - box.Overhead)
+	r.pos += uint32(n)
 
 	decrypted, ok := box.OpenAfterPrecomputation(nil, message[24:], &nonce, r.sharedKey)
 	if !ok {
@@ -85,12 +87,15 @@ type SecureWriter struct {
 }
 
 func (w *SecureWriter) Write(p []byte) (int, error) {
-	if len(p) > maxMessageSize {
-		panic("message is too large")
+	if len(p) == 0 {
+		return 0, errors.New("nothing to write")
+	} else if len(p) > maxMessageSize {
+		return 0, errors.New("message is too large")
 	}
 
 	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.LittleEndian, uint32(len(p)))
+	bSize := len(p) + 24 + box.Overhead
+	err := binary.Write(buf, binary.LittleEndian, uint32(bSize))
 	if err != nil {
 		return 0, err
 	}

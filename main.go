@@ -147,6 +147,9 @@ func (c *conn) serve() {
 			fmt.Println("write error:", err)
 			break
 		}
+
+		// always break
+		break
 	}
 }
 
