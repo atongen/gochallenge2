@@ -24,6 +24,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -70,7 +71,7 @@ func Serve(l net.Listener) error {
 			continue
 		}
 		c := newConn(conn, myPriv, peerPub)
-		go c.serve()
+		c.serve()
 	}
 
 	return err
@@ -132,13 +133,11 @@ type conn struct {
 
 // Serve a new connection.
 func (c *conn) serve() {
-	//for {
 	// read from the client
 	buf := make([]byte, maxMessageSize)
 	n, err := c.srwc.Read(buf)
 	if err != nil {
 		fmt.Println("read error:", err)
-		//break
 	}
 	buf = buf[:n]
 
@@ -146,12 +145,11 @@ func (c *conn) serve() {
 	_, err = fmt.Fprintf(c.srwc, string(buf))
 	if err != nil {
 		fmt.Println("write error:", err)
-		//break
 	}
+}
 
-	// always break
-	//break
-	//}
+func usage() {
+	log.Fatalf("Usage: %s <port> <message>", os.Args[0])
 }
 
 func main() {
@@ -169,17 +167,32 @@ func main() {
 	}
 
 	// Client mode
-	if len(os.Args) != 3 {
-		log.Fatalf("Usage: %s <port> <message>", os.Args[0])
+	var message []byte
+	var err error
+
+	if len(os.Args) == 3 {
+		message = []byte(os.Args[2])
+	} else if len(os.Args) == 2 {
+		message, err = ioutil.ReadAll(os.Stdin)
+		if err != nil {
+			log.Fatal(err)
+		} else if len(message) == 0 {
+			usage()
+		}
+	} else {
+		usage()
 	}
+
 	conn, err := Dial("localhost:" + os.Args[1])
 	if err != nil {
 		log.Fatal(err)
 	}
-	if _, err := conn.Write([]byte(os.Args[2])); err != nil {
+
+	if _, err = conn.Write(message); err != nil {
 		log.Fatal(err)
 	}
-	buf := make([]byte, len(os.Args[2]))
+
+	buf := make([]byte, len(message))
 	n, err := conn.Read(buf)
 	if err != nil {
 		log.Fatal(err)
