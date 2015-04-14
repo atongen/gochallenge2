@@ -2,8 +2,6 @@
 Go Challenge 2
 http://golang-challenge.com/go-challenge2/
 
-Author: Andrew Tongen <atongen@gmail.com>
-
 In order to prevent our competitor from spying on our network,
 we are going to write a small system that leverages NaCl to
 establish secure communication. NaCl is a crypto system that
