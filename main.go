@@ -3,20 +3,11 @@ Go Challenge 2
 http://golang-challenge.com/go-challenge2/
 
 Author: Andrew Tongen <atongen@gmail.com>
-2015-04-05
 
 In order to prevent our competitor from spying on our network,
 we are going to write a small system that leverages NaCl to
 establish secure communication. NaCl is a crypto system that
 uses a public key for encryption and a private key for decryption.
-
-Some helpful links:
-
-https://github.com/ereyes01/cryptohelper/blob/master/cryptohelper.go#L31
-http://pynacl.readthedocs.org/en/latest/public/
-http://play.golang.org/p/ssz2AKIj_y
-http://golang.org/src/net/http/server.go?s=51504:51550#L1714
-http://loige.co/simple-echo-server-written-in-go-dockerized/
 */
 package main
 
@@ -77,6 +68,8 @@ func Serve(l net.Listener) error {
 	return err
 }
 
+// clientHandshake writes it's pub key and reads the servers pub key
+// from a net.Conn
 func clientHandshake(conn net.Conn, pub *[32]byte) (*[32]byte, error) {
 	// write my pub key to connection
 	_, err := fmt.Fprintf(conn, string(pub[:32]))
@@ -96,6 +89,8 @@ func clientHandshake(conn net.Conn, pub *[32]byte) (*[32]byte, error) {
 	return &peerPub, nil
 }
 
+// serverHandshake reads the client's pub key and writes it's pub key
+// from a net.Conn
 func serverHandshake(conn net.Conn, pub *[32]byte) (*[32]byte, error) {
 	// read client pub key from connection
 	buf := make([]byte, 32)
