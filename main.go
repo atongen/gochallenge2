@@ -2,21 +2,10 @@
 Go Challenge 2
 http://golang-challenge.com/go-challenge2/
 
-Author: Andrew Tongen <atongen@gmail.com>
-2015-04-05
-
 In order to prevent our competitor from spying on our network,
 we are going to write a small system that leverages NaCl to
 establish secure communication. NaCl is a crypto system that
 uses a public key for encryption and a private key for decryption.
-
-Some helpful links:
-
-https://github.com/ereyes01/cryptohelper/blob/master/cryptohelper.go#L31
-http://pynacl.readthedocs.org/en/latest/public/
-http://play.golang.org/p/ssz2AKIj_y
-http://golang.org/src/net/http/server.go?s=51504:51550#L1714
-http://loige.co/simple-echo-server-written-in-go-dockerized/
 */
 package main
 
@@ -24,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -70,12 +60,14 @@ func Serve(l net.Listener) error {
 			continue
 		}
 		c := newConn(conn, myPriv, peerPub)
-		go c.serve()
+		c.serve()
 	}
 
 	return err
 }
 
+// clientHandshake writes it's pub key and reads the servers pub key
+// from a net.Conn
 func clientHandshake(conn net.Conn, pub *[32]byte) (*[32]byte, error) {
 	// write my pub key to connection
 	_, err := fmt.Fprintf(conn, string(pub[:32]))
@@ -95,6 +87,8 @@ func clientHandshake(conn net.Conn, pub *[32]byte) (*[32]byte, error) {
 	return &peerPub, nil
 }
 
+// serverHandshake reads the client's pub key and writes it's pub key
+// from a net.Conn
 func serverHandshake(conn net.Conn, pub *[32]byte) (*[32]byte, error) {
 	// read client pub key from connection
 	buf := make([]byte, 32)
@@ -132,13 +126,11 @@ type conn struct {
 
 // Serve a new connection.
 func (c *conn) serve() {
-	//for {
 	// read from the client
 	buf := make([]byte, maxMessageSize)
 	n, err := c.srwc.Read(buf)
 	if err != nil {
 		fmt.Println("read error:", err)
-		//break
 	}
 	buf = buf[:n]
 
@@ -146,12 +138,11 @@ func (c *conn) serve() {
 	_, err = fmt.Fprintf(c.srwc, string(buf))
 	if err != nil {
 		fmt.Println("write error:", err)
-		//break
 	}
+}
 
-	// always break
-	//break
-	//}
+func usage() {
+	log.Fatalf("Usage: %s <port> <message>", os.Args[0])
 }
 
 func main() {
@@ -169,17 +160,32 @@ func main() {
 	}
 
 	// Client mode
-	if len(os.Args) != 3 {
-		log.Fatalf("Usage: %s <port> <message>", os.Args[0])
+	var message []byte
+	var err error
+
+	if len(os.Args) == 3 {
+		message = []byte(os.Args[2])
+	} else if len(os.Args) == 2 {
+		message, err = ioutil.ReadAll(os.Stdin)
+		if err != nil {
+			log.Fatal(err)
+		} else if len(message) == 0 {
+			usage()
+		}
+	} else {
+		usage()
 	}
+
 	conn, err := Dial("localhost:" + os.Args[1])
 	if err != nil {
 		log.Fatal(err)
 	}
-	if _, err := conn.Write([]byte(os.Args[2])); err != nil {
+
+	if _, err = conn.Write(message); err != nil {
 		log.Fatal(err)
 	}
-	buf := make([]byte, len(os.Args[2]))
+
+	buf := make([]byte, len(message))
 	n, err := conn.Read(buf)
 	if err != nil {
 		log.Fatal(err)
